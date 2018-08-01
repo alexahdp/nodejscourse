@@ -32,7 +32,7 @@ TODO
 
 1. [Введение](/lessons/lesson_1.md)  
 2. [Синтаксис](/lessons/lesson_2.md)  
-3. [Коллбэки и файловая система](/lessons/lesson_3.md)  
+3. [Модули и файловая система](/lessons/lesson_3.md)  
 4. [Асинхронность](/lessons/lesson_4.md)  
 5. [Express.js - 1](/lessons/lesson_5.md)  
 6. [Express.js - 2](/lessons/lesson_6.md)  
