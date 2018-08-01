@@ -6,9 +6,9 @@ TODO
 
 
 ## Введение в Node.js и настройка рабочей среды  
- - Установка nodejs, npm, git  
- - Регистрация на github.  
+ - Установка nvm, nodejs, git, docker  
  - Установка текстового редактора (Sublime, Visual Studio Code).  
+ - Регистрация на github, dockerhub  
  - Правила работы с кодом на курсе
   - eslint (airbnb).  
   - editorconfig.  
