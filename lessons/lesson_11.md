@@ -20,6 +20,28 @@
 ```
 При определенных требованиях, такой подход более удобный нежели создавать отдельную коллекцию для сообщений. Например, обычно сообщение, оторванное от контекста диалога, не имеет смысла.
 
+Кстати в `mongoose` такая схема описана была бы так:
+
+```javascript
+const Schema = mongoose.Schema;
+const messageSchema = new Schema({
+	from: {
+		type    : String,
+		required: true,
+	},
+	
+	msg: {
+		type    : String,
+		required: true,
+	},
+});
+
+const dialogSchema = new Schema({
+	users   : [ Schema.Types.ObjectId ],
+	messages: [ messageSchema ],
+});
+```
+
 А вот в мире `Sql` придется делать кучу разных `join`, для выборок.
 
 * Так же исходя из предыдущего пункта, более легковесная и по этому может обрабатывать больше `rps` при прочих равных.
