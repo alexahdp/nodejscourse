@@ -4,8 +4,8 @@
 
 1. Аутентификация </br>
 1.1 Основные термины </br>
-1.2 Модуль Crypto </br>
-1.3 Аутентификация при помощи passport.js </br>
+1.2 Аутентификация при помощи passport.js </br>
+1.3 Сессии </br>
 2. Авторизация </br>
 2.1 Основные термины </br>
 2.2 Oauth2 </br>
@@ -14,7 +14,7 @@
 3.1 Виды уязвимостей </br>
 3.2 Helmet.js </br>
 4. Домашнее задание </br>
-4.1 Основные термины </br>
+4.1 Теория </br>
 4.2 Практическое задание по работе с Json Web Token </br>
 5. Источники </br>
 
@@ -27,9 +27,7 @@
 ### 1.1 Основные термины
 <b>Аутентификация</b> - это проверка соответствия субъекта и того, за кого он пытается себя выдать, с помощью некой уникальной информации (отпечатки пальцев, цвет радужки, голос и тд.), в простейшем случае - с помощью имени входа и пароля.
 
-### 1.2 Модуль Crypto
-
-### 1.3 Аутентификация при помощи passport.js
+### 1.2 Аутентификация при помощи passport.js
 <b>Passport</b> — это middleware для проверки подлинности, которую мы собираемся использовать для управления сессиями.
 
 Наша цель — реализовать в нашем приложении следующий процесс аутентификации:
@@ -48,15 +46,13 @@
 const express = require('express')
 const passport = require('passport')
 const session = require('express-session')
-const RedisStore = require('connect-redis')(session)
+const mongoStore = require('connect-mongodb');
 const app = express()
+// подробнее о сессиях в главе 1.3
 app.use(session({
-    store: new RedisStore({
-        url: config.redisStore.url
-    }),
-    secret: config.redisStore.secret,
-    resave: false,
-    saveUninitialized: false
+    secret: 'topsecret',
+    maxAge: new Date(Date.now() + 3600000),
+    store: new mongoStore({ db: 'myDb' })
 }))
 app.use(passport.initialize())
 app.use(passport.session())
@@ -92,6 +88,42 @@ passport.use(new LocalStrategy(
 ))
 ```
 
+### 1.3 Сессии
+
+Алгоритм работы сессий прост:
+
+1. Отправка специальной куки, которая содержит идентификатор сессии. Имя этой куки задается на этапе старта приложения
+2. Сохранение и извлечение данных. В качестве места хранения может в памяти, куках и в базе данных. (в нашем случае mongodb)
+3. Завершение сессии
+
+Работа с сессиями в Express.js с использвованием express-session:
+
+```javascript
+/*1*/app.use(session({
+/*2*/    secret: 'topsecret',
+/*3*/    maxAge: new Date(Date.now() + 3600000),
+/*4*/    store: new mongoStore({ db: 'myDb' })
+    }))
+```
+1. Устанавливаем middleware express-session
+2. В качестве первого аргумента передаем salt
+3. В качестве второго аргумента передаем продолжительность сессии
+4. Указываем где хранить сесии (если не указать будет храниться в памяти)
+
+Так же желательно указать
+```
+httpOnly: true
+```
+Чтобы сессионная кука была доступна только с сервера
+
+Далее с сессиями можно работать из объекта req
+
+```javascript
+req.session.destroy(err => {
+    console.error(err)
+})
+```
+Подробнее на https://github.com/expressjs/session
 ### 2. Авторизация
 ### 2.1 Основные термины
 <b>Авторизация</b> - это проверка и определение полномочий на выполнение некоторых действий в соответствии с ранее выполненной аутентификацией.
@@ -142,19 +174,19 @@ app.get('/profile', passport.authenticationMiddleware(), renderProfile)
 
 ### 3. Безопасность
 ### 3.1 Виды уязвимостей
-- <b>contentSecurityPolicy</b> for setting Content Security Policy
+- <b>contentSecurityPolicy</b> задает заголовок Content-Security-Policy для предотвращения атак межсайтового скриптинга и прочих межсайтовых вмешательств.
 - <b>crossdomain</b> for handling Adobe products’ crossdomain requests
 - <b>dnsPrefetchControl</b> controls browser DNS prefetching
 - <b>expectCt</b> for handling Certificate Transparency
-- <b>frameguard</b> to prevent clickjacking
-- <b>hidePoweredBy</b> to remove the X-Powered-By header
-- <b>hpkp</b> for HTTP Public Key Pinning
-- <b>hsts</b> for HTTP Strict Transport Security	
-- <b>ieNoOpen</b> sets X-Download-Options for IE8+
-- <b>noCache</b> to disable client-side caching
-- <b>noSniff</b> to keep clients from sniffing the MIME type
-- <b>referrerPolicy</b> to hide the Referer header
-- <b>xssFilter</b> adds some small XSS protections
+- <b>frameguard</b> задает заголовок X-Frame-Options для защиты от кликджекинга.
+- <b>hidePoweredBy</b> удаляет заголовок X-Powered-By.
+- <b>hpkp</b> добавляет заголовки Public Key Pinning для предотвращения атак посредника (атак “человек посередине”) с поддельными сертификатами.
+- <b>hsts</b> задает заголовок Strict-Transport-Security, принудительно активирующий защиту соединений с сервером (по протоколу HTTP с использованием SSL/TLS).	
+- <b>ieNoOpen</b> задает заголовок X-Download-Options для IE8+.
+- <b>noCache</b> задает заголовок Cache-Control и заголовки Pragma для отключения кеширования на стороне клиента.
+- <b>noSniff</b> задает заголовок X-Content-Type-Options для защиты браузеров от прослушивания (сниффинга) MIME ответов с отличным от объявленного типом содержимого (content-type).
+- <b>referrerPolicy</b> скрывает заголовок Referer
+- <b>xssFilter</b> задает заголовок X-XSS-Protection для активации фильтра XSS (фильтра межсайтового скриптинга) в большинстве современных веб-браузеров.
 ### 3.2 Helmet.js
 
 Данная библиотека предоставляет защиту от перечисленных выше уязвимостей
@@ -226,3 +258,4 @@ https://github.com/zmts/supra-api-nodejs/tree/master/actions/auth
 - https://habr.com/company/mailru/blog/115163/
 - https://habr.com/post/193458/#p5
 - https://medium.com/devschacht/node-hero-chapter-8-27b74c33a5ce
+- http://expressjs.com/ru/advanced/best-practice-security.html
