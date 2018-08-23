@@ -1,13 +1,5 @@
 # Занятие 7
 
-Работа с реляционными БД (на примере PostgreSQL)  
- - PostgreSQL - самая популярная реляционная база данных  
- - Связывание базы данных с концепциями объектно-ориентированных языков программирования с помощью ORM  
- - Настройка и запуск собственной базы данных PostgreSQL на локальном сервере  
- - Практика написания SQL-запросов  
-
-
-
 ## Реляционная БД
 
 ### Термины
@@ -21,8 +13,9 @@
 - ORM. Объектно-ориентированная модель. Способ работы с данными релиационной бд как с экземплярами объектов/классов определённой схемы (стуктуры).
 
 Таблица с данными пользователей
+
 |  id | username |   email   |      dateCreate     |
-|:---:|:--------:|:---------:|:-------------------:|
+|---|---|---|---|
 | 345 | Паша     | p@mail.ru | 2006-01-11 07:56:20 |
 | 346 | Саня     | s@mail.ru | 2018-08-13 19:17:04 |
 | 347 | Димарик  | d@mail.ru | 2018-08-14 00:14:12 |
@@ -53,7 +46,7 @@
 ```
 
 ### Установка
-Будем использовать [MariaDb](https://mariadb.com/kb/en/library/installing-and-using-mariadb-via-docker/) - форк знаменийто MySQL.
+Будем использовать [MariaDB](https://mariadb.com/kb/en/library/installing-and-using-mariadb-via-docker/) - форк знаменийто MySQL.
 
 
 Скачиваем образ последней стабильной версии
@@ -64,7 +57,7 @@ docker pull mariadb:latest
 
 Запускаем контейнер командой
 ```sh
-docker run --restart=always –name mariadb_test -v /mnt/mysql:/var/lib/mysql  -e MYSQL_ROOT_PASSWORD='mypass' -p 3306:3306 -d mariadb –innodb_buffer_pool_size=1G
+docker run --restart=always --name mariadb_test -v /mnt/mysql:/var/lib/mysql  -e MYSQL_ROOT_PASSWORD='mypass' -p 3306:3306 -d mariadb -innodb_buffer_pool_size=1G
 ```
 Что тут написано
 * запустить контейнер c именем `mariadb_test`
@@ -80,7 +73,7 @@ docker run --restart=always –name mariadb_test -v /mnt/mysql:/var/lib/mysql  -
 ### Подключение через консоль
 Выполнив команду
 ```bash
-mysql -uroot --password -p 3306
+mysql -uroot --password -p 3306 --protocol=TCP
 ```
 мы попадаем в режим командой строки уже самой базы. Как будто запустили интерпретатор NodeJS, только для базы данных
 
@@ -96,22 +89,127 @@ npm i --save mysql
 ```js
 const mysql      = require('mysql');
 
-const connection = mysql.createConnection({
-  host     : 'localhost',
-  user     : 'me',
-  password : 'secret',
-  database : 'my_db'
+const sql = mysql.createConnection({
+  host     : configl.db.host,
+  user     : configl.db.user,
+  password : configl.db.password,
+  database : configl.db.database
 });
 
-connection.connect();
+sql.connect();
 
-connection.query('SELECT 1 + 1 AS solution', function (error, results, fields) {
+
+module.exports = { sql };
+```
+
+Теперь в любом месте проекта пишем
+```javascript
+const { sql } = require('model/db');
+sql.query('SELECT 1 + 1 AS solution', function (error, results, fields) {
   if (error) throw error;
   console.log('The solution is: ', results[0].solution);
 });
-
-connection.end();
 ```
+
+
+### Пулл коннектор
+Код создания коннекта из предыдущего примера имеет существенные ограничения:
+<details>
+  <summary>Ответ</summary>
+  параметры подключения захардкожены в файле, нет закрытия коннекта, нельзя делать несколько одновременных запроса
+</details>
+
+За нас уже подумали разработчики MariaDB и авторы драйвера, поэтому файл `model/db.js`
+нужно поменять на:
+```javascript
+const mysql      = require('mysql');
+var sql  = mysql.createPool({
+  connectionLimit : 10,
+  host     : configl.db.host,
+  user     : configl.db.user,
+  password : configl.db.password,
+  database : configl.db.database
+});
+
+module.exports = { sql };
+```
+
+Теперь при вызове pool.query будут вызваны несколько действий:
+* sql.getConnection(). Он получит объект connection из пулла коннектов. Если свободных коннектор нет, будет ждать пока появится.
+* connection.query(). Собвственно выполнение запроса
+* connection.release(). Освобождение запроса и пометка его в пулле коннектов как свободного.
+Для пользователя это всё скрыто и можно использовать sql.query
+Полный список настроек [тут](https://github.com/mysqljs/mysql#pool-options)
+
+
+### Запросы
+Все запросы к БД можно разделить на две вида:
+1. выборка данных
+```sql
+SELECT email, username, dateCreate FROM users WHERE email = 'd@mail.ru'
+SELECT SUBSTRING_INDEX(email, '@', -1) AS domain, COUNT(*) AS count FROM users GROUP BY domain ORDER BY count DESC LIMIT 5
+```
+2. выполнение команды
+```sql
+DELETE FROM users WHERE email LIKE '%@mail.ru%'
+ALTER TABLE users ADD COLUMN phone VARCHAR(15) AFTER username;
+```
+
+
+### Построитель запросов
+Как правило запрос должен содержать некоторые данные, полученные из вне
+
+```javascript
+// где-то в коде
+const email = req.queru.email;
+
+sql.query(`SELECT * FROM users WHERE email = ${email}`, ...;
+```
+Такой подход хорош все, кроме безопасности. Самым частым случаем взлома веб-приложений является передача от клиента параметров, изменяющих поведение sql-запрос на вредоностное. Чтобы "руками" каждый раз не проверять, что там передали от клиента, в драйвер встроенн механизм "очистки" данных от возможных проблем:
+```javascript
+sql.query(
+  'SELECT * FROM users WHERE email = ? AND username = ?',
+ email,
+ username
+  function (error, results) {
+    
+  }
+);
+```
+При выполнении запроса драйвер вызовет метод `connection.escape()` и "очистит" значение от возможного вредоностного содержимого.
+
+Для удобства составления запросов можно и нужно использовать постоитель запросов [squel](hiddentao.com/squel)
+```javascript
+let s = squel.select()
+        .field("*")
+        .from("users")
+        .where("email = ?", email)
+        .where("username = ?", username);
+        
+sql.query(s.toString(), ...)
+```
+Таким образом сущевственно упрощается написание запросов, поскольку часто повторяющиеся кусочки можно сохранить куда-то в точку входа приложение и делать что-то типа такого:
+```javascript
+
+// где-то в месте инициализации приложения
+global.queryMap = {
+ 'getUser': squel.select()
+        .field("*")
+        .from("users")
+};
+
+
+// в нужном месте
+let query = global.queryMap.clone()
+ .where('username = ?', username)
+ .toString();
+        
+```
+
+### Домашнее задание
+* добавить создание подключения в проект
+* создать/изменить роут авторизации и регистрации, проверяющий данные пользователя в БД
+* сделать все запросы через построитель запросов
 
 
 
