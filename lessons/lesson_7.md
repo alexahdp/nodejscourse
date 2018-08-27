@@ -10,18 +10,7 @@
  - валидация данных  
 
 
-### Основные Термины
-- тип данных. Аналогия типа данных из ЯП
-- ячейка. Минимальная единица данных. Аналог переменной из ЯП.
-- колонка. Набор ячеек одного типа.
-- запись. Набор ячеек экземпляра одной сущности.
-- таблица. Набор записей.
-- запрос. Текс определеной структуры (SQL), описывающий команду для обработки данных. Разные типы команд имеют разных синтаксис и могут как возвращать результат (таблицу), так и нет
-- драйвер. Как правило, бд имеет бинарный протокол, используя который можно общаться с бд (отправлять запросы и получать в ответ данные). Аналог драйвера в ОС
-- ORM. Объектно-ориентированная модель. Способ работы с данными релиационной бд как с экземплярами объектов/классов определённой схемы (стуктуры).
-
 Пример таблицы с данными пользователей:  
-
 |  id | username |   email   |      dateCreate     |
 |---|---|---|---|
 | 345 | Bob     | p@mail.ru | 2006-01-11 07:56:20 |
@@ -53,9 +42,6 @@
 ]
 ```
 
-### GUI
-Работать с БД через консоль можно, но можно использовать графическое приложение [HeidiSQL ](https://www.heidisql.com/)
-
 ## Практическая часть
 
 ### Установка
@@ -80,6 +66,8 @@ docker run --restart=always --name mariadb_test -v /mnt/mysql:/var/lib/mysql  -e
 * имя образа `mariadb`. Можно указать конкретную версию базы через `:`
 * опция уже самого процесса базы `-innodb_buffer_pool_size=1G`. Т.е. уже при запуске контейнера можно указывать настройки запуска и не нужно лезь внутрь контейнера
 
+### GUI
+Работать с БД через консоль можно, но можно использовать графическое приложение [HeidiSQL ](https://www.heidisql.com/)
 
 ### Подключение через консоль
 Внутри docker-контейнера с mysql нужно выполнить команду:
@@ -190,6 +178,214 @@ let s = squel.select()
         .where("username = ?", username);
         
 sql.query(s.toString(), ...)
+```
+
+### ORM
+Работать с данными как нативными примитивами js-а можно, но обычно не очень удобно. Со временем появляется много кода тесно связанного с экземплярами тех или иных объектов. Для удобства работы с данными обычно используют высокоуровневые обёртки, например ORM. Т.е. тип объекта описывается схемой и методами работы с ней (далее будем использовать промисы).
+
+### Коннект
+Будем использовать [sequelizejs](http://docs.sequelizejs.com/), поскольку позволяет работать с целым рядом популярных sql-баз данных:
+
+1. Ставим модули
+```bash
+npm i --save sequelize
+npm i --save mysql2
+```
+
+2. Создаем файл `model/orm.js` с содержимым
+```js
+const Sequelize = require('sequelize');
+const sequelize = new Sequelize('database', 'username', 'password', {
+  host: 'localhost',
+  dialect: 'mysql'
+});
+
+
+module.exports = { sequelize, Sequelize };
+```
+
+Создадим схему пользователя `model/user.js`:
+```javascript
+const { Sequelize, sequelize } = require('model/sequelize');
+
+const User = sequelize.define('user', {
+  username: Sequelize.STRING,
+  email: {
+      type: Sequelize.STRING(255),
+      validate: {
+        isEmail: true
+      }
+  },
+  dateCreate: {
+      type: Sequelize.DATE,
+      defaultValue: Sequelize.NOW
+  },
+  password: {
+      type: Sequelize.STRING(255)
+  }
+});
+
+module.exports = User;
+```
+
+3. Создаем схему объекта с БД (если такая таблица уже есть, но другой структуры, ничего не произойдёт)
+```javascript
+
+const User = require('model/user');
+
+sequelize.sync()
+  .then(() => User.create({
+    username: 'Alex',
+    email: 'alexcode61.ru',
+    password: 123
+  }))
+  .then(user => {
+      console.log(user.toJSON());
+  });
+```
+
+#### CRUD
+Обычный цикл работы с объектами БД выглядит так
+1. создать документ
+```javascript
+let user = await User.create({
+  username: 'Bob',
+  email: 'test@gmail.com',
+  password: 123
+});
+```
+
+2. Найти
+```javascript
+const email = ...
+let user = await User.findOne({
+  where: {
+    email: email
+  }
+});
+```
+
+3. Обновить
+```javascript
+let user = ...
+user.email = newEmail;
+await user.save();
+```
+
+4. Удалить
+```javascript
+let user = ...;
+await user.destroy();
+```
+
+http://docs.sequelizejs.com/manual/tutorial/models-usage.html
+
+Аналоги этих действий в виде чистого sql:
+```sql
+INSERT INTO users (
+  username,
+  email,
+  password
+) VALUES(
+  'Bob',
+  'test@gmail.com',
+  123
+);
+
+SELECT *
+FROM users
+WHERE (
+  email = '...'
+)
+LIMIT 1;
+
+UPDATE TABLE users SET email = '...' WHERE id = ...;
+
+DELETE FROM  users WHERE id = ...;
+```
+
+### Методы
+Здесь и далее примеры из [документации](http://docs.sequelizejs.com/manual/tutorial/models-definition.html)
+При описании схемы объекта, помимо описания полей, можно указать методы:
+
+1. Статические методы. Методы, общие для схемы
+```javascript
+// объявление
+User.version = () => 'v4';
+
+
+// использование
+console.log(global.model.User.version());
+```
+
+2. Методы экземпляра объекта
+```javascript
+
+// объявление
+User.prototype.getDislpayName = function() {
+  return `${this.username} (${this.email})`;
+};
+
+// использование
+const user = ...;
+
+console.log(user.getDislpayName());
+```
+
+3. Валидатор. Далее идёт копипаста с документации, просто чтобы оценить встроенные возможности
+```javascript
+
+// объявление
+const User = sequelize.define('user', {
+  foo: {
+    type: Sequelize.STRING,
+    validate: {
+      is: ["^[a-z]+$",'i'],     // will only allow letters
+    }
+  }
+});
+
+
+// использование
+let user = ...;
+user.email = ...
+let errors = user.validate();
+if (errors) {
+  // если мы зашли сюда, значит схеме что-то не понравилось в email
+}
+
+4. Getter/Setter
+
+// объявление
+const User = sequelize.define('user', {
+  firstname: Sequelize.STRING,
+  lastname: Sequelize.STRING
+}, {
+  getterMethods: {
+    fullName() {
+      return this.firstname + ' ' + this.lastname
+    }
+  },
+
+  setterMethods: {
+    fullName(value) {
+      const names = value.split(' ');
+
+      this.setDataValue('firstname', names[0]);
+      this.setDataValue('lastname', name[1]);
+    },
+  }
+});
+
+
+// использование
+let user = ...;
+console.log(user.fullName);
+
+user.fullName = 'Alex Pez';
+
+console.log(user.fullName);
+
 ```
 
 ### Задание 1
